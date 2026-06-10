@@ -178,7 +178,7 @@ class FactorCNN(nn.Module):
         # Multi-scale convolutions (short, medium, long windows)
         self.conv_short = nn.Conv1d(in_channels, 32, kernel_size=3, padding=1)
         self.conv_mid = nn.Conv1d(in_channels, 32, kernel_size=5, padding=2)
-        self.conv_long = nn.Conv1d(in_channels, 32, kernel_size=10, padding=5)
+        self.conv_long = nn.Conv1d(in_channels, 32, kernel_size=9, padding=4)
 
         self.bn = nn.BatchNorm1d(96)  # 32 * 3 channels
         self.pool = nn.AdaptiveAvgPool1d(1)
@@ -371,3 +371,148 @@ class FactorAutoEncoder(nn.Module):
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """Extract latent factors without reconstruction."""
         return self.encoder(x)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  scikit-learn Wrapper for MetaLabelNet
+# ══════════════════════════════════════════════════════════════════════
+
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+class PyTorchMetaLabelClassifier(BaseEstimator, ClassifierMixin):
+    """
+    scikit-learn compatible classifier wrapper around MetaLabelNet MLP.
+    
+    Expected benefit:
+        Drop-in replacement for RandomForestClassifier in existing
+        meta-labeling pipelines (e.g. train_short.py, train_sparse.py).
+    """
+    def __init__(
+        self,
+        hidden_dim: int = 64,
+        dropout: float = 0.3,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        epochs: int = 40,
+        batch_size: int = 64,
+        patience: int = 10,
+        val_ratio: float = 0.15,
+    ):
+        self.hidden_dim = hidden_dim
+        self.dropout = dropout
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.patience = patience
+        self.val_ratio = val_ratio
+        
+        self.model = None
+        self.scaler = None
+        self.classes_ = np.array([0.0, 1.0])
+        self.input_dim = None
+
+    def fit(self, X, y):
+        # Convert pandas DataFrames or Series to numpy
+        if hasattr(X, 'values'):
+            X = X.values
+        if hasattr(y, 'values'):
+            y = y.values
+            
+        X = X.astype(np.float32)
+        y = y.astype(np.float32)
+        
+        self.input_dim = X.shape[1]
+        
+        # Scale features
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+        
+        # Split train/val by time to avoid future-leakage
+        from src.dl.datasets import CrossSectionalDataset
+        from src.dl.training import Trainer, TrainConfig
+        from torch.utils.data import DataLoader
+        
+        if len(X_scaled) >= 20:
+            val_size = int(len(X_scaled) * self.val_ratio)
+            train_X, val_X = X_scaled[:-val_size], X_scaled[-val_size:]
+            train_y, val_y = y[:-val_size], y[-val_size:]
+        else:
+            train_X, val_X = X_scaled, X_scaled
+            train_y, val_y = y, y
+            
+        train_ds = CrossSectionalDataset(train_X, train_y)
+        val_ds = CrossSectionalDataset(val_X, val_y)
+        
+        train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=False)
+        val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
+        
+        self.model = MetaLabelNet(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            dropout=self.dropout
+        )
+        
+        config = TrainConfig(
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            epochs=self.epochs,
+            patience=self.patience,
+            log_dir='.cache/tb_runs',
+            checkpoint_dir='.cache/meta_ckpts',
+        )
+        trainer = Trainer(self.model, config=config)
+        trainer.fit(train_loader, val_loader)
+        
+        return self
+
+    def predict_proba(self, X):
+        if self.model is None or self.scaler is None:
+            raise ValueError("Classifier is not fitted yet.")
+            
+        if hasattr(X, 'values'):
+            X = X.values
+        X = X.astype(np.float32)
+        
+        X_scaled = self.scaler.transform(X)
+        
+        from src.dl.training import get_device
+        device = get_device()
+        self.model.to(device)
+        self.model.eval()
+        
+        x_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(device)
+        with torch.no_grad():
+            preds = self.model(x_tensor).cpu().squeeze(-1).numpy()
+            
+        if len(preds.shape) == 0:
+            preds = preds.reshape(1)
+            
+        probs = np.zeros((len(X), 2))
+        probs[:, 0] = 1.0 - preds
+        probs[:, 1] = preds
+        return probs
+
+    def predict(self, X):
+        probs = self.predict_proba(X)
+        return (probs[:, 1] > 0.5).astype(float)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        if self.model is not None:
+            state['model_state_dict'] = {k: v.cpu() for k, v in self.model.state_dict().items()}
+            del state['model']
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if 'model_state_dict' in state and state['model_state_dict'] is not None:
+            self.model = MetaLabelNet(
+                input_dim=self.input_dim,
+                hidden_dim=self.hidden_dim,
+                dropout=self.dropout
+            )
+            self.model.load_state_dict(state['model_state_dict'])
+            del self.model_state_dict

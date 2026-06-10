@@ -71,6 +71,7 @@ def run_oos_backtest(
     top_n=1,
     test_size=0.2,
     transaction_cost_bps=10,
+    feature_selection_method='autoencoder',
 ):
     panel, feature_columns = prepare_training_panel(
         price_map,
@@ -86,6 +87,7 @@ def run_oos_backtest(
         horizon=horizon,
         top_factor_count=top_factor_count,
         top_n=top_n,
+        feature_selection_method=feature_selection_method,
     )
 
     predictions = predict_factor_scores(model_bundle, test_panel)

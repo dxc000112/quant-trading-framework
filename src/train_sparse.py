@@ -8,7 +8,7 @@ from src.data_loader import fetch_data, fetch_vix_data
 from src.meta_model import get_features_v2, train_meta_model
 from src.labeling import get_daily_vol, get_events, get_bins
 
-def train_sparse_model(save_path='rf_model_sparse.pkl'):
+def train_sparse_model(model_type='mlp', save_path='rf_model_sparse.pkl'):
     """
     Trains the Sparse Reversal Model using 15-minute bars.
     - Uses enhanced features (VIX + Volume indicators)
@@ -114,8 +114,8 @@ def train_sparse_model(save_path='rf_model_sparse.pkl'):
     print(f"  Loss (SL/T1): {(y == 0).sum()} ({(y == 0).mean()*100:.1f}%)")
     
     # 4. Train
-    print("\n[5/5] Training Random Forest...")
-    clf = train_meta_model(X, y)
+    print(f"\n[5/5] Training {model_type.upper()}...")
+    clf = train_meta_model(X, y, model_type=model_type)
     
     if clf:
         model_data = {
@@ -131,14 +131,28 @@ def train_sparse_model(save_path='rf_model_sparse.pkl'):
         print(f"   Features: {X.columns.tolist()}")
         
         # Feature importance
-        importances = pd.Series(clf.feature_importances_, index=X.columns)
-        importances = importances.sort_values(ascending=False)
-        print(f"\n📊 Feature Importance:")
-        for feat, imp in importances.items():
-            bar = '█' * int(imp * 50)
-            print(f"  {feat:<18} {imp:.4f} {bar}")
+        if hasattr(clf, 'feature_importances_'):
+            importances = pd.Series(clf.feature_importances_, index=X.columns)
+            importances = importances.sort_values(ascending=False)
+            print(f"\n📊 Feature Importance:")
+            for feat, imp in importances.items():
+                bar = '█' * int(imp * 50)
+                print(f"  {feat:<18} {imp:.4f} {bar}")
+        else:
+            print("\n📊 Feature Importance: (Not directly available for MLP models)")
     else:
         print("❌ Training failed.")
 
 if __name__ == "__main__":
-    train_sparse_model()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model-type', type=str, default='mlp', choices=['rf', 'mlp'],
+                        help="Model type: 'rf' for RandomForest, 'mlp' for PyTorch MLP")
+    parser.add_argument('--save-path', type=str, default='rf_model_sparse.pkl',
+                        help="Path to save the model pickle file")
+    args = parser.parse_args()
+    
+    train_sparse_model(
+        model_type=args.model_type,
+        save_path=args.save_path
+    )

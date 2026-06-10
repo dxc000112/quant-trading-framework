@@ -320,3 +320,61 @@ class Trainer:
             pred = self.model(batch_x).squeeze(-1)
             all_preds.append(pred.cpu().numpy())
         return np.concatenate(all_preds)
+
+
+class AutoEncoderTrainer:
+    """
+    Trainer specifically for FactorAutoEncoder models.
+    Learns a compact representation of high-dimensional factors by minimizing MSE reconstruction loss.
+    """
+    def __init__(
+        self,
+        model: nn.Module,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        epochs: int = 20,
+        batch_size: int = 128,
+        device: Optional[torch.device] = None,
+    ):
+        self.model = model
+        self.device = device or get_device()
+        self.model.to(self.device)
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay
+        )
+        self.loss_fn = nn.MSELoss()
+
+    def fit(self, X: np.ndarray) -> "AutoEncoderTrainer":
+        """
+        Fits the AutoEncoder on the feature matrix X.
+        Args:
+            X: np.ndarray of shape (N, input_dim)
+        """
+        from torch.utils.data import TensorDataset, DataLoader
+        
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        dataset = TensorDataset(X_tensor, X_tensor)
+        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        
+        self.model.train()
+        for epoch in range(1, self.epochs + 1):
+            epoch_loss = 0.0
+            for batch_x, _ in loader:
+                batch_x = batch_x.to(self.device)
+                self.optimizer.zero_grad()
+                reconstructed, _ = self.model(batch_x)
+                loss = self.loss_fn(reconstructed, batch_x)
+                loss.backward()
+                self.optimizer.step()
+                epoch_loss += loss.item()
+                
+            if epoch % 5 == 0 or epoch == 1:
+                logger.info(f"AutoEncoder Epoch {epoch:2d}/{self.epochs} | loss={epoch_loss/len(loader):.6f}")
+                
+        return self

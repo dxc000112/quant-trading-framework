@@ -24,8 +24,9 @@ from src.dl.models import (
     FactorCNN,
     TemporalTransformer,
     FactorAutoEncoder,
+    PyTorchMetaLabelClassifier,
 )
-from src.dl.training import Trainer, TrainConfig, EarlyStopping, get_device
+from src.dl.training import Trainer, TrainConfig, EarlyStopping, get_device, AutoEncoderTrainer
 
 
 class TestDatasets(unittest.TestCase):
@@ -208,6 +209,47 @@ class TestTraining(unittest.TestCase):
         metrics = trainer.evaluate(loaders['test'])
         self.assertIn('test_loss', metrics)
         self.assertIn('accuracy', metrics)
+
+    def test_pytorch_classifier_wrapper_fit_predict_pickle(self):
+        """Wrapper fits, predicts probabilities, and pickles successfully."""
+        import pickle
+        np.random.seed(42)
+        X = np.random.randn(100, 5).astype(np.float32)
+        y = (X[:, 0] + X[:, 1] > 0).astype(np.float32)
+
+        clf = PyTorchMetaLabelClassifier(hidden_dim=16, epochs=5, batch_size=16)
+        clf.fit(X, y)
+
+        probs = clf.predict_proba(X)
+        self.assertEqual(probs.shape, (100, 2))
+        self.assertTrue(np.allclose(probs.sum(axis=1), 1.0))
+
+        preds = clf.predict(X)
+        self.assertEqual(preds.shape, (100,))
+        self.assertTrue(set(np.unique(preds)).issubset({0.0, 1.0}))
+
+        # Serialization check (joblib / pickle)
+        serialized = pickle.dumps(clf)
+        loaded = pickle.loads(serialized)
+
+        probs_loaded = loaded.predict_proba(X)
+        self.assertTrue(np.allclose(probs, probs_loaded))
+
+    def test_autoencoder_trainer(self):
+        """AutoEncoderTrainer runs and reconstructs high-dimensional inputs."""
+        np.random.seed(42)
+        X = np.random.randn(80, 50).astype(np.float32)
+        
+        model = FactorAutoEncoder(input_dim=50, latent_dim=8)
+        trainer = AutoEncoderTrainer(model, epochs=5, batch_size=16)
+        trainer.fit(X)
+        
+        model.eval()
+        with torch.no_grad():
+            reconstructed, latent = model(torch.tensor(X, dtype=torch.float32).to(trainer.device))
+            
+        self.assertEqual(reconstructed.shape, (80, 50))
+        self.assertEqual(latent.shape, (80, 8))
 
 
 if __name__ == '__main__':

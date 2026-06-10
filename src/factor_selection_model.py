@@ -219,47 +219,128 @@ def fit_factor_model(
     horizon=5,
     top_factor_count=256,
     top_n=1,
+    feature_selection_method='autoencoder',
+    latent_dim=32,
 ):
-    feature_scores = (
-        train_panel[feature_columns]
-        .corrwith(train_panel['target_rank'])
-        .abs()
-        .sort_values(ascending=False)
-        .fillna(0.0)
-    )
-    selected_features = feature_scores.head(min(top_factor_count, len(feature_scores))).index.tolist()
+    import torch
+    
+    if feature_selection_method == 'corr':
+        feature_scores = (
+            train_panel[feature_columns]
+            .corrwith(train_panel['target_rank'])
+            .abs()
+            .sort_values(ascending=False)
+            .fillna(0.0)
+        )
+        selected_features = feature_scores.head(min(top_factor_count, len(feature_scores))).index.tolist()
 
-    if not selected_features:
-        raise ValueError("No features were selected for training.")
+        if not selected_features:
+            raise ValueError("No features were selected for training.")
 
-    fill_values = train_panel[selected_features].median().fillna(0.0)
-    X_train = train_panel[selected_features].fillna(fill_values)
+        fill_values = train_panel[selected_features].median().fillna(0.0)
+        X_train = train_panel[selected_features].fillna(fill_values)
 
-    model = RandomForestRegressor(
-        n_estimators=200,
-        max_depth=8,
-        min_samples_leaf=8,
-        random_state=42,
-        n_jobs=-1,
-    )
-    model.fit(X_train, train_panel['target_rank'])
+        model = RandomForestRegressor(
+            n_estimators=200,
+            max_depth=8,
+            min_samples_leaf=8,
+            random_state=42,
+            n_jobs=-1,
+        )
+        model.fit(X_train, train_panel['target_rank'])
 
-    return {
-        'model': model,
-        'selected_features': selected_features,
-        'feature_scores': feature_scores.head(100).to_dict(),
-        'fill_values': fill_values.to_dict(),
-        'min_factor_count': min_factor_count,
-        'horizon': horizon,
-        'top_n': top_n,
-    }
+        return {
+            'model': model,
+            'feature_selection_method': 'corr',
+            'selected_features': selected_features,
+            'feature_scores': feature_scores.head(100).to_dict(),
+            'fill_values': fill_values.to_dict(),
+            'min_factor_count': min_factor_count,
+            'horizon': horizon,
+            'top_n': top_n,
+        }
+    elif feature_selection_method == 'autoencoder':
+        from src.dl.models import FactorAutoEncoder
+        from src.dl.training import AutoEncoderTrainer, get_device
+        
+        # Fit fill values for all features
+        fill_values = train_panel[feature_columns].median().fillna(0.0)
+        X_train_raw = train_panel[feature_columns].fillna(fill_values).values
+        
+        # Train AutoEncoder to learn latent factors (reconstruction)
+        ae_model = FactorAutoEncoder(input_dim=len(feature_columns), latent_dim=latent_dim)
+        ae_trainer = AutoEncoderTrainer(ae_model, lr=1e-3, epochs=20, batch_size=128)
+        ae_trainer.fit(X_train_raw)
+        
+        # Encode features into latent space
+        ae_model.eval()
+        device = get_device()
+        ae_model.to(device)
+        with torch.no_grad():
+            X_train_tensor = torch.tensor(X_train_raw, dtype=torch.float32).to(device)
+            latent_train = ae_model.encode(X_train_tensor).cpu().numpy()
+            
+        model = RandomForestRegressor(
+            n_estimators=200,
+            max_depth=8,
+            min_samples_leaf=8,
+            random_state=42,
+            n_jobs=-1,
+        )
+        model.fit(latent_train, train_panel['target_rank'])
+        
+        # Convert state_dict to CPU numpy arrays for safe pickle serialization
+        ae_state_np = {k: v.cpu().numpy() for k, v in ae_model.state_dict().items()}
+        
+        return {
+            'model': model,
+            'feature_selection_method': 'autoencoder',
+            'selected_features': feature_columns,
+            'ae_model_state_dict': ae_state_np,
+            'feature_columns': feature_columns,
+            'latent_dim': latent_dim,
+            'fill_values': fill_values.to_dict(),
+            'min_factor_count': min_factor_count,
+            'horizon': horizon,
+            'top_n': top_n,
+        }
+    else:
+        raise ValueError(f"Unknown feature selection method: {feature_selection_method}")
 
 
 def predict_factor_scores(model_bundle, panel_slice: pd.DataFrame) -> pd.Series:
-    selected_features = model_bundle['selected_features']
+    import torch
+    method = model_bundle.get('feature_selection_method', 'corr')
     fill_values = pd.Series(model_bundle['fill_values'])
-    X = panel_slice[selected_features].fillna(fill_values).fillna(0.0)
-    return pd.Series(model_bundle['model'].predict(X), index=panel_slice.index, name='score')
+    
+    if method == 'corr':
+        selected_features = model_bundle['selected_features']
+        X = panel_slice[selected_features].fillna(fill_values).fillna(0.0)
+        preds = model_bundle['model'].predict(X)
+    elif method == 'autoencoder':
+        feature_columns = model_bundle['feature_columns']
+        # Rebuild AutoEncoder model
+        from src.dl.models import FactorAutoEncoder
+        from src.dl.training import get_device
+        
+        ae_model = FactorAutoEncoder(input_dim=len(feature_columns), latent_dim=model_bundle['latent_dim'])
+        state_dict = {k: torch.tensor(v) for k, v in model_bundle['ae_model_state_dict'].items()}
+        ae_model.load_state_dict(state_dict)
+        
+        X_raw = panel_slice[feature_columns].fillna(fill_values).fillna(0.0).values
+        
+        device = get_device()
+        ae_model.to(device)
+        ae_model.eval()
+        with torch.no_grad():
+            X_tensor = torch.tensor(X_raw, dtype=torch.float32).to(device)
+            latent = ae_model.encode(X_tensor).cpu().numpy()
+            
+        preds = model_bundle['model'].predict(latent)
+    else:
+        raise ValueError(f"Unknown feature_selection_method: {method}")
+        
+    return pd.Series(preds, index=panel_slice.index, name='score')
 
 
 def train_factor_selection_model(
@@ -269,6 +350,7 @@ def train_factor_selection_model(
     top_factor_count=256,
     top_n=1,
     test_size=0.2,
+    feature_selection_method='autoencoder',
     save_path='factor_model.pkl',
 ):
     panel, feature_columns = prepare_training_panel(
@@ -289,18 +371,25 @@ def train_factor_selection_model(
         horizon=horizon,
         top_factor_count=top_factor_count,
         top_n=top_n,
+        feature_selection_method=feature_selection_method,
     )
 
     predictions = predict_factor_scores(bundle, test_panel)
     rank_ic = _compute_daily_rank_ic(predictions, test_panel['target_rank'])
     selected_returns = _compute_daily_top_n_return(predictions, test_panel['forward_return'], top_n=top_n)
 
+    num_features = (
+        len(bundle['selected_features'])
+        if bundle.get('feature_selection_method') == 'corr'
+        else len(feature_columns)
+    )
+
     bundle['metrics'] = {
         'train_rows': int(len(train_panel)),
         'test_rows': int(len(test_panel)),
         'train_dates': int(len(train_dates)),
         'test_dates': int(len(test_dates)),
-        'selected_features': int(len(bundle['selected_features'])),
+        'selected_features': int(num_features),
         'mean_rank_ic': float(rank_ic.mean()) if not rank_ic.empty else None,
         'median_rank_ic': float(rank_ic.median()) if not rank_ic.empty else None,
         'mean_selected_forward_return': float(selected_returns.mean()) if not selected_returns.empty else None,
@@ -327,16 +416,49 @@ def score_latest_cross_section(model_bundle, price_map):
 
     as_of_date = valid_dates.max()
     snapshot = panel.xs(as_of_date, level=0).copy()
-    selected_features = model_bundle['selected_features']
-    xs_features = snapshot[selected_features]
-    xs_mean = xs_features.mean(axis=0)
-    xs_std = xs_features.std(axis=0).replace(0, np.nan)
-    xs_features = ((xs_features - xs_mean) / xs_std).clip(-5, 5)
+    
+    method = model_bundle.get('feature_selection_method', 'corr')
+    fill_values = pd.Series(model_bundle['fill_values'])
+    
+    if method == 'corr':
+        selected_features = model_bundle['selected_features']
+        xs_features = snapshot[selected_features]
+        xs_mean = xs_features.mean(axis=0)
+        xs_std = xs_features.std(axis=0).replace(0, np.nan)
+        xs_features = ((xs_features - xs_mean) / xs_std).clip(-5, 5)
 
-    X_live = xs_features.fillna(pd.Series(model_bundle['fill_values'])).fillna(0.0)
+        X_live = xs_features.fillna(fill_values).fillna(0.0)
+        preds = model_bundle['model'].predict(X_live)
+    elif method == 'autoencoder':
+        feature_columns = model_bundle['feature_columns']
+        xs_features = snapshot[feature_columns]
+        xs_mean = xs_features.mean(axis=0)
+        xs_std = xs_features.std(axis=0).replace(0, np.nan)
+        xs_features = ((xs_features - xs_mean) / xs_std).clip(-5, 5)
+
+        X_live_raw = xs_features.fillna(fill_values).fillna(0.0).values
+        
+        from src.dl.models import FactorAutoEncoder
+        import torch
+        from src.dl.training import get_device
+        
+        ae_model = FactorAutoEncoder(input_dim=len(feature_columns), latent_dim=model_bundle['latent_dim'])
+        state_dict = {k: torch.tensor(v) for k, v in model_bundle['ae_model_state_dict'].items()}
+        ae_model.load_state_dict(state_dict)
+        
+        device = get_device()
+        ae_model.to(device)
+        ae_model.eval()
+        with torch.no_grad():
+            X_tensor = torch.tensor(X_live_raw, dtype=torch.float32).to(device)
+            latent = ae_model.encode(X_tensor).cpu().numpy()
+            
+        preds = model_bundle['model'].predict(latent)
+    else:
+        raise ValueError(f"Unknown feature selection method: {method}")
 
     scored = snapshot[['close']].copy()
-    scored['score'] = model_bundle['model'].predict(X_live)
+    scored['score'] = preds
     scored['as_of_date'] = as_of_date
     scored.index.name = 'ticker'
     scored['market'] = [_infer_market(ticker) for ticker in scored.index]

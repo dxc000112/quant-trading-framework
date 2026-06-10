@@ -147,9 +147,13 @@ def get_features_v2(spy_data, vix_data=None, volatility=None):
     
     return df_feats.dropna()
 
-def train_meta_model(X, y):
+def train_meta_model(X, y, model_type='mlp'):
     """
-    Trains a Random Forest Classifier.
+    Trains a Meta-Model.
+    Args:
+        X: features
+        y: target labels
+        model_type: 'rf' for RandomForestClassifier, 'mlp' for PyTorchMetaLabelClassifier
     """
     # Align indices
     common_idx = X.index.intersection(y.index)
@@ -164,13 +168,29 @@ def train_meta_model(X, y):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, shuffle=False)
     
     # Train
-    clf = RandomForestClassifier(n_estimators=100, max_depth=5, class_weight='balanced_subsample', random_state=42)
+    if model_type == 'rf':
+        clf = RandomForestClassifier(n_estimators=100, max_depth=5, class_weight='balanced_subsample', random_state=42)
+    elif model_type == 'mlp':
+        from src.dl.models import PyTorchMetaLabelClassifier
+        # Hyperparameters for MLP
+        clf = PyTorchMetaLabelClassifier(
+            hidden_dim=64,
+            dropout=0.3,
+            lr=1e-3,
+            weight_decay=1e-4,
+            epochs=40,
+            batch_size=64,
+            patience=10
+        )
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
+        
     clf.fit(X_train, y_train)
     
     # Evaluate
     y_pred = clf.predict(X_test)
     
-    print("--- Meta-Model Performance ---")
+    print(f"--- Meta-Model Performance ({model_type.upper()}) ---")
     print("\nConfusion Matrix:")
     cm = confusion_matrix(y_test, y_pred)
     print(cm)

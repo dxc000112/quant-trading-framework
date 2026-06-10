@@ -10,7 +10,7 @@ from src.meta_model import get_features, train_meta_model
 from src.labeling import get_daily_vol, get_events, get_bins
 from src.plotting import plot_triple_barrier_events, plot_confusion_matrix
 
-def train_short_sniper(save_path='rf_model_short.pkl', visualize=True):
+def train_short_sniper(model_type='mlp', save_path='rf_model_short.pkl', visualize=True):
     """
     Trains the 'Short Sniper' Meta-Model.
     - Direction: Short (Side = -1)
@@ -142,8 +142,8 @@ def train_short_sniper(save_path='rf_model_short.pkl', visualize=True):
     y = labels['bin']
     
     # 4. Train
-    print("Training Random Forest on Short Signals...")
-    clf = train_meta_model(X, y)
+    print(f"Training {model_type.upper()} on Short Signals...")
+    clf = train_meta_model(X, y, model_type=model_type)
     
     if clf:
         # 5. Save
@@ -182,4 +182,17 @@ def train_short_sniper(save_path='rf_model_short.pkl', visualize=True):
                 plot_triple_barrier_events(prices, events, idx, pt_sl, vol, save_path='test_short_loss.png', side=-1, lookback=30)
 
 if __name__ == "__main__":
-    train_short_sniper()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model-type', type=str, default='mlp', choices=['rf', 'mlp'],
+                        help="Model type: 'rf' for RandomForest, 'mlp' for PyTorch MLP")
+    parser.add_argument('--save-path', type=str, default='rf_model_short.pkl',
+                        help="Path to save the model pickle file")
+    parser.add_argument('--no-viz', action='store_true', help="Disable visualization plotting")
+    args = parser.parse_args()
+    
+    train_short_sniper(
+        model_type=args.model_type,
+        save_path=args.save_path,
+        visualize=not args.no_viz
+    )
