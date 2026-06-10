@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment & secrets — NEVER commit
+.env
+.schwab_token.json
+
+# Model artifacts (too large for git)
+*.pkl
+*.pt
+*.pth
+*.onnx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Cache
+.cache/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# TensorBoard
+runs/
+checkpoints/
+
+# Backtest outputs (regenerable)
+backtest_outputs/
+
+# Generated images
+*.png
+
+# Gemini / Claude config (local agent state)
+.gemini/
+.claude/
+
+# Submodule / external repos
+ai-hedge-fund/
+
+# Large binary files
+*.pdf
+*.sqlite
+
+# Raw log dumps (regenerable)
+filtered_alpaca_logs.txt
+filtered_yf_logs.txt
+march_5_logs.txt
+missing_logs.txt

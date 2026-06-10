@@ -1,0 +1,71 @@
+# Email Configuration
+email:
+  sender: "your_email@gmail.com"
+  password: "your_app_password" # Generate an App Password in Google Account settings
+  recipient: "recipient_email@example.com"
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+
+# Strategy Configuration
+strategy:
+  sma_period: 200
+  rsi_period: 14
+  rsi_threshold: 30
+
+# Stock Watchlist
+stocks:
+  - "TSM"
+  - "NVDA"
+  - "AMD"
+  - "AVGO"
+  - "ASML"
+
+# 3000-Factor Stock Selection
+factor_model:
+  universe_preset: "semis"
+  top_n: 1
+  lookback_period: "24mo"
+  bar_interval: "1d"
+  forward_horizon: 5
+  min_factor_count: 3000
+  top_factor_count: 256
+  min_rows: 260
+  test_size: 0.2
+  transaction_cost_bps: 10
+  focus_symbol: "TSM"
+  # Optional: uncomment and provide your own U.S. semiconductor universe.
+  # universe:
+  #   - "TSM"
+  #   - "NVDA"
+  #   - "AMD"
+
+# SPX Intraday Close Anchor Model
+spx_anchor_model:
+  symbol: "SPX"
+  session_open: "09:30"
+  session_close: "16:00"
+  anchor_start_time: "10:00"
+  update_frequency_minutes: 5
+  price_bin_size: 5.0
+  lower_interval_quantile: 0.15
+  upper_interval_quantile: 0.85
+  contract_size: 100
+  intraday_volume_weight: 0.25
+  front_expiry_days: 1
+  max_snapshot_staleness_minutes: 10
+  lookback_rows_for_ranks: 800
+  min_train_sessions: 40
+  retrain_every_n_sessions: 5
+
+# Live Trading Bot Configuration
+live_bot:
+  ticker: "SPY"
+  interval: "1m"
+  period: "5d"
+  model_path: "rf_model_short.pkl"
+  confidence_threshold: 0.63      # Minimum probability to trigger entry
+  cooldown_seconds: 300            # 5 min cooldown between signals
+  pt_multiplier: 0.4               # Profit target = pt_multiplier * volatility
+  sl_multiplier: 0.6               # Stop loss = sl_multiplier * volatility
+  breakeven_ratio: 0.5             # Move to breakeven after this fraction of target
+  resample_rule: "5min"            # Resampling rule for 1m → 5m bars

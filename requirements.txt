@@ -1,0 +1,14 @@
+yfinance==0.2.40
+pandas
+pyyaml
+python-dotenv
+requests
+scikit-learn
+numpy
+matplotlib
+seaborn
+joblib
+alpaca-trade-api
+torch
+tensorboard
+pytest
