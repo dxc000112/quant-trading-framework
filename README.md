@@ -106,6 +106,41 @@ factor_model:
   focus_symbol: "TSM"
 ```
 
+## 🧠 Deep Learning Extension (Phase 3 Upgrades)
+
+The system is upgraded with PyTorch deep learning models, offering non-linear feature projection and better probability calibration.
+
+### 1. PyTorch MLP Classifier (`PyTorchMetaLabelClassifier`)
+- **Location**: [src/dl/models.py](file:///Users/ding/Desktop/谷歌  /量化软件/src/dl/models.py#L379)
+- **Concept**: A scikit-learn compatible wrapper around a PyTorch Multi-Layer Perceptron (`MetaLabelNet`). It replaces the Random Forest meta-labeler, capturing high-order multiplicative factor interactions.
+- **Usage**: Train via command-line by selecting `mlp` as the model type:
+  ```bash
+  python -m src.train_short --model-type mlp
+  ```
+
+### 2. AutoEncoder Factor Compressor (`FactorAutoEncoder`)
+- **Location**: [src/dl/models.py](file:///Users/ding/Desktop/谷歌  /量化软件/src/dl/models.py#L313)
+- **Concept**: Compresses the high-dimensional 3000+ factor space into a 32-dimensional dense latent space. It trains self-supervised, eliminating look-ahead target leakages during feature selection.
+- **Usage**: Automatically used by the stock selection training pipeline:
+  ```bash
+  python -m src.train_factor_model
+  ```
+
+### 3. Model Comparisons & Backtests
+We have built comparative analysis scripts to benchmark deep learning models against the Random Forest baselines.
+
+- **SPY Reversal Benchmarking** (RF Classifier vs. PyTorch MLP Classifier):
+  ```bash
+  python src/backtests/compare_reversal_models.py
+  ```
+  Generates comparative metrics and stores a report in `backtest_outputs/reversal_comparison.md`.
+
+- **Semiconductor Stock Selection Benchmarking** (Correlation Filter vs. AutoEncoder):
+  ```bash
+  python src/backtests/compare_factor_selection.py
+  ```
+  Generates comparative metrics and stores a report in `backtest_outputs/factor_selection_comparison.md`.
+
 ## 📂 Project Structure
 
 - **`src/`**:
