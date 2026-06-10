@@ -111,7 +111,7 @@ factor_model:
 The system is upgraded with PyTorch deep learning models, offering non-linear feature projection and better probability calibration.
 
 ### 1. PyTorch MLP Classifier (`PyTorchMetaLabelClassifier`)
-- **Location**: [src/dl/models.py](file:///Users/ding/Desktop/谷歌  /量化软件/src/dl/models.py#L379)
+- **Location**: [src/dl/models.py](src/dl/models.py#L379)
 - **Concept**: A scikit-learn compatible wrapper around a PyTorch Multi-Layer Perceptron (`MetaLabelNet`). It replaces the Random Forest meta-labeler, capturing high-order multiplicative factor interactions.
 - **Usage**: Train via command-line by selecting `mlp` as the model type:
   ```bash
@@ -119,7 +119,7 @@ The system is upgraded with PyTorch deep learning models, offering non-linear fe
   ```
 
 ### 2. AutoEncoder Factor Compressor (`FactorAutoEncoder`)
-- **Location**: [src/dl/models.py](file:///Users/ding/Desktop/谷歌  /量化软件/src/dl/models.py#L313)
+- **Location**: [src/dl/models.py](src/dl/models.py#L313)
 - **Concept**: Compresses the high-dimensional 3000+ factor space into a 32-dimensional dense latent space. It trains self-supervised, eliminating look-ahead target leakages during feature selection.
 - **Usage**: Automatically used by the stock selection training pipeline:
   ```bash
